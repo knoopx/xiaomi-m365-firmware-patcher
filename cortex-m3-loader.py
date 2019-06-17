@@ -3,9 +3,6 @@ from idc import *
 import sys
 import operator
 
-# Only tested for Cortex-M3, little endian
-# IDA uses nomenclature byte, word, dword, whereas ARM uses byte, half word, word
-
 # Device dependent values
 _FLASH_BASEADDR = 0x08000000
 _FLASH_SIZE = 0x10000   # 64kb flash
