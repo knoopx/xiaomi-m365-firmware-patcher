@@ -3,7 +3,6 @@ from idc import *
 import sys
 import operator
 
-# Device dependent values
 _FLASH_BASEADDR = 0x08000000
 _FLASH_SIZE = 0x10000   # 64kb flash
 _RAM_BASEADDR = 0x20000000
@@ -19,6 +18,21 @@ _BOUNDARY = 0x100
 # https://github.com/etransport/ninebot-docs/wiki/M365ESC
 
 # http://infocenter.arm.com/help/index.jsp?topic=/com.arm.doc.dui0552a/BABIFJFG.html
+_ANNOTATIONS = [
+            "ARM_INITIAL_SP",
+            "ARM_RESET",
+            "ARM_NMI",
+            "ARM_HARD_FAULT",
+            "ARM_MM_FAULT",
+            "ARM_BUS_FAULT",
+            "ARM_USAGE_FAULT",
+            "ARM_RESERVED0", "ARM_RESERVED1", "ARM_RESERVED2", "ARM_RESERVED3",
+            "ARM_SVCALL",
+            "ARM_RESERVED_DEBUG", "ARM_RESERVED4",
+            "ARM_PENDSV",
+            "ARM_SYSTICK",
+        ]
+
 # This Walker implementation seems like overkill, but allows code to work on
 # loader_input and segments as well.
 class _Walker:
@@ -87,7 +101,7 @@ def estimate_vector_table_length(walker, startaddress, endaddress):
 
    walker.skip(4) # skip stackpointer
 
-   index = 1 # count skipped stackpointer
+   length = 1 # count skipped stackpointer
    while True:
       address, dword = walker.dwordinc()
       dword &= ~1 # clear LSB
@@ -95,16 +109,16 @@ def estimate_vector_table_length(walker, startaddress, endaddress):
          break
       elif dword != 0 and (dword < startaddress or dword >= endaddress):
          break
-      index += 1
+      length += 1
 
-   return index
+   return length
 
 _NULLSUB = 0x4770 # BX LR
 _LOOPSUB = 0xe7fe # loop: B loop
 
 def estimate_base_offset(walker, numentries):
    'Returns the best estimate for offset of base address'
-   entries = list()
+   vector_table_length = list()
    subs = list()
    vals = dict()
 
@@ -116,7 +130,7 @@ def estimate_base_offset(walker, numentries):
       if entry == 0:
          continue
       entry &= ~1 # clear LSB
-      entries.append(entry)
+      vector_table_length.append(entry)
 
    # generate list of potential null- or loopsub addresses
    # nullsub detection finds lots of false positive
@@ -128,7 +142,7 @@ def estimate_base_offset(walker, numentries):
          subs.append(address)
 
    # generate frequency dictionary of offsets
-   for entry in entries:
+   for entry in vector_table_length:
       for sub in subs:
          offset = entry - sub
          vals[offset] = vals.get(offset, 0) + 1
@@ -145,23 +159,30 @@ def estimate_base_offset(walker, numentries):
 
    return None
 
-def analyze_vector_table(start, entries):
-   walker = MemoryWalker(start, start + 4 * entries)
+def analyze_vector_table(start, vector_table_length):
+   msg("Analyzing %d vector table vector_table_length...\n" % vector_table_length)
+   walker = MemoryWalker(start, start + (4 * vector_table_length))
 
-   # skip stackpointer
-   walker.skip(4)
+   irq_num = -1
+   for index in range(1, vector_table_length):
+      if _ANNOTATIONS[index:]:
+        annotation = _ANNOTATIONS[index]
+      else:
+        irq_num+=1
+        annotation = "ARM_IRQ%d" % irq_num
 
-   # mark called functions for analysis
-   for index in range(1, entries):
       address, entry = walker.dwordinc()
+      entry_name = "%s_%08x" % (annotation, address)
+      idc.MakeDword(address)
+      msg("Annotating 0x%08x as %s\n" % (address, annotation))
+      ida_name.set_name(address, annotation, 0)
+
       if entry == 0:
          continue
       else:
          entry &= ~1
          add_func(entry, BADADDR)
-
-   # make vector table an array
-   doDwrd(start, 4 * entries)
+         idc.SetFunctionCmt(entry, annotation, 1)
 
 # loader code
 
@@ -176,12 +197,12 @@ def load_file(li, neflags, format):
    msg('Estimated vector table length: %i \n' % vector_table_length)
    walker.seek(0)
    base_address = estimate_base_offset(walker, vector_table_length)
-   # omitted: error handling
    msg('Estimated base address: 0x%08x \n' % base_address)
    add_segm(0, _RAM_BASEADDR, _RAM_BASEADDR + _RAM_SIZE, 'RAM', None)
    add_segm(0, _FLASH_BASEADDR, _FLASH_BASEADDR + _FLASH_SIZE, 'FLASH', None)
+
    SetRegEx(_FLASH_BASEADDR, 'T', 1, SR_user)
    li.file2base(0, base_address, base_address + li.size(), FILEREG_PATCHABLE)
    add_hidden_area(_FLASH_BASEADDR, base_address, 'Unknown flash', '', '', DEFCOLOR)
-   analyze_vector_table(base_address, vector_table_length)
+   analyze_vector_table(base_address, vector_table_length+1)
    return 1
