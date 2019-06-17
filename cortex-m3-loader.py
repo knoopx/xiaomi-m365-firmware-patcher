@@ -8,9 +8,20 @@ import operator
 
 # Device dependent values
 _FLASH_BASEADDR = 0x08000000
-_FLASH_SIZE = 0x00010000   # 64kb flash
+_FLASH_SIZE = 0x10000   # 64kb flash
+_RAM_BASEADDR = 0x20000000
+_RAM_SIZE = 0x5000 # 20kb ram
 _BOUNDARY = 0x100
 
+# 08000000	bootloader
+# 08001000	app
+# 08008400	update
+# 0800F800	app_config
+# 0800FC00	upd_config
+
+# https://github.com/etransport/ninebot-docs/wiki/M365ESC
+
+# http://infocenter.arm.com/help/index.jsp?topic=/com.arm.doc.dui0552a/BABIFJFG.html
 # This Walker implementation seems like overkill, but allows code to work on
 # loader_input and segments as well.
 class _Walker:
@@ -170,6 +181,7 @@ def load_file(li, neflags, format):
    base_address = estimate_base_offset(walker, vector_table_length)
    # omitted: error handling
    msg('Estimated base address: 0x%08x \n' % base_address)
+   add_segm(0, _RAM_BASEADDR, _RAM_BASEADDR + _RAM_SIZE, 'RAM', None)
    add_segm(0, _FLASH_BASEADDR, _FLASH_BASEADDR + _FLASH_SIZE, 'FLASH', None)
    SetRegEx(_FLASH_BASEADDR, 'T', 1, SR_user)
    li.file2base(0, base_address, base_address + li.size(), FILEREG_PATCHABLE)
