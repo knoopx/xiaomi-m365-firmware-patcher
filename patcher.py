@@ -2,6 +2,9 @@
 from binascii import hexlify
 import struct
 import keystone
+import capstone
+import icdiff
+import difflib
 from xiaotea import XiaoTea
 
 # https://web.eecs.umich.edu/~prabal/teaching/eecs373-f10/readings/ARMv7-M_ARM.pdf
@@ -68,11 +71,26 @@ def FindPattern(data, signature, mask=None, start=None, maxit=None):
 class FirmwarePatcher():
     def __init__(self, data):
         self.data = bytearray(data)
+        self.cs = capstone.Cs(capstone.CS_ARCH_ARM, capstone.CS_MODE_LITTLE_ENDIAN + capstone.CS_MODE_THUMB)
         self.ks = keystone.Ks(keystone.KS_ARCH_ARM, keystone.KS_MODE_THUMB)
 
     def encrypt(self):
         cry = XiaoTea()
         self.data = cry.encrypt(self.data)
+
+    def disasm(self, bytes, ofs = 0x1000):
+        asm = self.cs.disasm(bytes, ofs)
+        return ["%08x %-08s\t%s\t%s" % (i.address, i.bytes.hex(), i.mnemonic, i.op_str) for i in asm]
+
+    def debug(self, patch_name, patches):
+        print(patch_name)
+        print("-" * len(patch_name))
+        for patch in patches:
+            ofs, pre, post = patch
+            d = icdiff.ConsoleDiff(cols=140)
+            print("\r\n".join(d.make_table(self.disasm(pre, ofs), self.disasm(post, ofs))))
+            print("\r\n")
+        print("\r\n")
 
     def kers_min_speed(self, kmh):
         val = struct.pack('<H', int(kmh * 345))
@@ -81,22 +99,36 @@ class FirmwarePatcher():
         pre, post = PatchImm(self.data, ofs, 4, val, MOVW_T3_IMM)
         return [(ofs, pre, post)]
 
+    # Normal: 28km/h (0x1c), 32000mA (0x7D00) / 17000mA (0x4268)
+    # Eco: 22km/h (0x16), 17000mA (0x4268) / 7000mA (0x1B58)
+    # 31, 50000, 30000, 26, 40000, 20000
     def speed_params(self, normal_kmh, normal_phase, normal_battery, eco_kmh, eco_phase, eco_battery):
         ret = []
+        # 00006a54 8028                   cmp        r0, #0x80                            ; CODE XREF=sub_6998+182
+        # 00006a56 00DD                   ble        loc_6a5a
+        # 00006a58 8020                   movs       r0, #0x80                         ; CODE XREF=sub_6998+162
+        # 00006a5a **
+        # 00006a5c 6843                   muls       r0, r5, r0 -> MOVW R2
+        # 00006a5e 000C                   lsrs       r0, r0, #0x10
         sig = [0x80, 0x28, 0x00, 0xDD, 0x80, 0x20, *[None]*2, 0x68, 0x43, 0x00, 0x0C]
         ofs = FindPattern(self.data, sig) + 8
         pre = self.data[ofs:ofs+4]
         post = bytes(self.ks.asm('MOVW R2, #{:n}'.format(normal_battery))[0])
         self.data[ofs:ofs+4] = post
         ret.append([ofs, pre, post])
-        ofs += 4
 
+        # 00006a60 E085                   strh       r0, [r4, #0x2e]
+        ofs += 4
         pre = self.data[ofs:ofs+2]
         post = bytes(self.ks.asm('B #0x2A')[0])
         self.data[ofs:ofs+2] = post
         ret.append([ofs, pre, post])
         ofs += 2
 
+        # 00006ada 012A                   cmp        r2, #0x1
+        # 00006adc 44F26821               movw       r1, #0x4268
+        # 00006ae0 4246                   mov        r2, r8
+        # 00006ae2 05D0                   beq        loc_6af0
         sig = [0x01, 0x2A, 0x44, 0xF2, 0x68, 0x21, 0x42, 0x46, 0x05, 0xD0]
         ofs = FindPattern(self.data, sig) + 2
         pre, post = PatchImm(self.data, ofs, 4, struct.pack('<H', eco_phase), MOVW_T3_IMM)
@@ -519,24 +551,18 @@ if __name__ == "__main__":
 
     cfw = FirmwarePatcher(data)
 
-    cfw.kers_min_speed(45)
-    cfw.speed_params(31, 50000, 30000, 26, 40000, 20000)
-    cfw.brake_params(115, 8000, 50000)
-    cfw.voltage_limit(52)
-    cfw.motor_start_speed(3)
-    cfw.instant_eco_switch()
-    #cfw.boot_with_eco()
-    #cfw.cruise_control_delay(5)
-    #cfw.cruise_control_nobeep()
-    cfw.remove_hard_speed_limit()
-    #cfw.remove_charging_mode()
-    #cfw.stay_on_locked()
-    #cfw.bms_uart_76800()
-    #cfw.russian_throttle()
-    #cfw.wheel_speed_const(315)
-
-    # Don't flash encrypted firmware to scooter running firmware < 1.4.1
-    #cfw.encrypt()
-
-    with open(sys.argv[2], 'wb') as fp:
-        fp.write(cfw.data)
+    # cfw.debug("kers_min_speed", cfw.kers_min_speed(45))
+    cfw.debug("speed_params", cfw.speed_params(31, 50000, 30000, 26, 40000, 20000))
+    # cfw.debug(cfw.brake_params(115, 8000, 50000))
+    # cfw.debug(cfw.voltage_limit(52))
+    # cfw.debug("motor_start_speed", cfw.motor_start_speed(3))
+    # cfw.debug("instant_eco_switch", cfw.instant_eco_switch())
+    #cfw.debug(cfw.boot_with_eco())
+    #cfw.debug(cfw.cruise_control_delay(5))
+    #cfw.debug(cfw.cruise_control_nobeep())
+    # cfw.debug("remove_hard_speed_limit", cfw.remove_hard_speed_limit())
+    #cfw.debug(cfw.remove_charging_mode())
+    #cfw.debug(cfw.stay_on_locked())
+    #cfw.debug(cfw.bms_uart_76800())
+    #cfw.debug(cfw.russian_throttle())
+    #cfw.debug(cfw.wheel_speed_const(315))
