@@ -1,37 +1,8 @@
-from idaapi import *
-from idc import *
 import sys
 import operator
+import struct
 
-_FLASH_BASEADDR = 0x08000000
-_FLASH_SIZE = 0x10000   # 64kb flash
-_RAM_BASEADDR = 0x20000000
-_RAM_SIZE = 0x5000 # 20kb ram
 _BOUNDARY = 0x100
-
-# 08000000	bootloader
-# 08001000	app
-# 08008400	update
-# 0800F800	app_config
-# 0800FC00	upd_config
-
-# https://github.com/etransport/ninebot-docs/wiki/M365ESC
-
-# http://infocenter.arm.com/help/index.jsp?topic=/com.arm.doc.dui0552a/BABIFJFG.html
-_ANNOTATIONS = [
-            "ARM_INITIAL_SP",
-            "ARM_RESET",
-            "ARM_NMI",
-            "ARM_HARD_FAULT",
-            "ARM_MM_FAULT",
-            "ARM_BUS_FAULT",
-            "ARM_USAGE_FAULT",
-            "ARM_RESERVED0", "ARM_RESERVED1", "ARM_RESERVED2", "ARM_RESERVED3",
-            "ARM_SVCALL",
-            "ARM_RESERVED_DEBUG", "ARM_RESERVED4",
-            "ARM_PENDSV",
-            "ARM_SYSTICK",
-        ]
 
 # This Walker implementation seems like overkill, but allows code to work on
 # loader_input and segments as well.
@@ -82,7 +53,9 @@ class MemoryWalker(_Walker):
 
 class LoaderInputWalker(_Walker):
    def __init__(self, li):
-      _Walker.__init__(self, 0, li.size())
+      bytes = li.read()
+      li.seek(0)
+      _Walker.__init__(self, 0, len(bytes))
       self.li = li
 
    def _read(self, bytes):
@@ -147,62 +120,32 @@ def estimate_base_offset(walker, numentries):
          offset = entry - sub
          vals[offset] = vals.get(offset, 0) + 1
 
-   sorted_vals = sorted(vals.iteritems(), key=operator.itemgetter(1), reverse=True)
+   sorted_vals = sorted(vals.items(), key=operator.itemgetter(1), reverse=True)
 
    # loop best fits
    i = 0
    while i < len(sorted_vals):
       if sorted_vals[i][0] % _BOUNDARY == 0:
-         msg('Taking estimate nr. %i\n' % (i + 1))
+         print('Taking estimate nr. %i\n' % (i + 1))
          return sorted_vals[i][0]
       i += 1
 
    return None
 
-def analyze_vector_table(start, vector_table_length):
-   msg("Analyzing %d vector table vector_table_length...\n" % vector_table_length)
-   walker = MemoryWalker(start, start + (4 * vector_table_length))
+if __name__ == "__main__":
+    import sys
+    import argparse
 
-   irq_num = -1
-   for index in range(1, vector_table_length):
-      if _ANNOTATIONS[index:]:
-        annotation = _ANNOTATIONS[index]
-      else:
-        irq_num+=1
-        annotation = "ARM_IRQ%d" % irq_num
+    parser = argparse.ArgumentParser(description='Process some integers.')
+    parser.add_argument('file', type=argparse.FileType('rb'), help='Input file')
+    parser.add_argument('--flash-base-addr', type=lambda x: int(x, 0), help='Flash Base Address')
+    parser.add_argument('--flash-size', type=lambda x: int(x, 0), help='Flash Base Address')
 
-      address, entry = walker.dwordinc()
-      entry_name = "%s_%08x" % (annotation, address)
-      idc.MakeDword(address)
-      msg("Annotating 0x%08x as %s\n" % (address, annotation))
-      ida_name.set_name(address, annotation, 0)
+    args = parser.parse_args()
 
-      if entry == 0:
-         continue
-      else:
-         entry &= ~1
-         add_func(entry, BADADDR)
-         idc.SetFunctionCmt(entry, annotation, 1)
-
-# loader code
-
-def accept_file(li, filename):
-   return 'Cortex M3'
-
-def load_file(li, neflags, format):
-   set_processor_type('ARM:ARMv7-M', SETPROC_ALL | SETPROC_FATAL)
-   walker = LoaderInputWalker(li)
-   vector_table_length = estimate_vector_table_length(walker, _FLASH_BASEADDR, _FLASH_BASEADDR + _FLASH_SIZE)
-   # omitted: error handling
-   msg('Estimated vector table length: %i \n' % vector_table_length)
-   walker.seek(0)
-   base_address = estimate_base_offset(walker, vector_table_length)
-   msg('Estimated base address: 0x%08x \n' % base_address)
-   add_segm(0, _RAM_BASEADDR, _RAM_BASEADDR + _RAM_SIZE, 'RAM', None)
-   add_segm(0, _FLASH_BASEADDR, _FLASH_BASEADDR + _FLASH_SIZE, 'FLASH', None)
-
-   SetRegEx(_FLASH_BASEADDR, 'T', 1, SR_user)
-   li.file2base(0, base_address, base_address + li.size(), FILEREG_PATCHABLE)
-   # add_hidden_area(_FLASH_BASEADDR, base_address, 'Unknown flash', '', '', DEFCOLOR)
-   analyze_vector_table(base_address, vector_table_length+1)
-   return 1
+    walker = LoaderInputWalker(args.file)
+    vector_table_length = estimate_vector_table_length(walker, args.flash_base_addr, args.flash_base_addr + args.flash_size)
+    print('Estimated vector table length: %i \n' % vector_table_length)
+    walker.seek(0)
+    base_address = estimate_base_offset(walker, vector_table_length)
+    print('Estimated base address: 0x%08x \n' % base_address)

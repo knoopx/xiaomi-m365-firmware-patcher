@@ -129,8 +129,8 @@ class FirmwarePatcher():
         cry = XiaoTea()
         self.data = cry.encrypt(self.data)
 
-    def disasm(self, bytes, ofs = 0x0000):
-        asm = self.cs.disasm(bytes, ofs)
+    def disasm(self, bytes, ofs):
+        asm = self.cs.disasm(bytes, 0x08001000 + ofs)
         return ["%08x %-08s\t%s\t%s" % (i.address, i.bytes.hex(), i.mnemonic, i.op_str) for i in asm]
 
     def debug(self, patch_name, patches):

@@ -78,7 +78,7 @@ class FirmwarePatcher():
         cry = XiaoTea()
         self.data = cry.encrypt(self.data)
 
-    def disasm(self, bytes, ofs = 0x1000):
+    def disasm(self, bytes, ofs = 0x08001000):
         asm = self.cs.disasm(bytes, ofs)
         return ["%08x %-08s\t%s\t%s" % (i.address, i.bytes.hex(), i.mnemonic, i.op_str) for i in asm]
 
