@@ -11,8 +11,6 @@ _RAM_BASEADDR = 0x20002000
 _RAM_SIZE = 0x2000
 _BOUNDARY = 0x100
 
-TYPES = {"int8_t":"__int8", "int16_t": "__int16", "int32_t": "__int32", "int64_t":"__int64", "int128_t":"__int128"}
-
 # nRF51822	Nordic Semiconductor	Cortex-M0 MCU with BLE
 
 # The processor implements the ARMv6-M Thumb instruction set, including a number of 32-bit instructions that use Thumb-2 technology. The ARMv6-M instruction set comprises:
@@ -340,8 +338,12 @@ def load_file(li, neflags, format):
    walker.seek(0)
    base_address = estimate_base_offset(walker, vector_table_length)
    msg('Estimated base address: 0x%08x \n' % base_address)
+
+
+   add_entry(1, base_address, "entrypoint", 1)
+
    add_segm(0, _RAM_BASEADDR, _RAM_BASEADDR + _RAM_SIZE, 'RAM', None)
-   add_segm(0, _FLASH_BASEADDR, _FLASH_BASEADDR + _FLASH_SIZE, 'FLASH', None)
+   add_segm(0, _FLASH_BASEADDR, _FLASH_BASEADDR + _FLASH_SIZE, 'FLASH', "CODE")
 
    add_segm(0, 0x40000000, 0x4000FFFF, 'CMSDK subsystem APB peripherals', None)
    add_segm(0, 0x40000000, 0x40000FFF, 'Timer0', None)
