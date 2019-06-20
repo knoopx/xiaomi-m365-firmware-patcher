@@ -7,6 +7,10 @@ import icdiff
 import difflib
 from xiaotea import XiaoTea
 
+# M1GCA1601C0001
+# ECO_ADDR = 0x200006d8
+
+
 # https://web.eecs.umich.edu/~prabal/teaching/eecs373-f10/readings/ARMv7-M_ARM.pdf
 MOVW_T3_IMM = [*[None]*5, 11, *[None]*6, 15, 14, 13, 12, None, 10, 9, 8, *[None]*4, 7, 6, 5, 4, 3, 2, 1, 0]
 MOVS_T1_IMM = [*[None]*8, 7, 6, 5, 4, 3, 2, 1, 0]
@@ -78,9 +82,12 @@ class FirmwarePatcher():
         cry = XiaoTea()
         self.data = cry.encrypt(self.data)
 
-    def disasm(self, bytes, ofs = 0x08001000):
-        asm = self.cs.disasm(bytes, ofs)
+    def disasm(self, bytes, ofs):
+        asm = self.cs.disasm(bytes, 0x08001000 + ofs)
         return ["%08x %-08s\t%s\t%s" % (i.address, i.bytes.hex(), i.mnemonic, i.op_str) for i in asm]
+
+    def pdisasm(self, bytes, ofs):
+        print("\r\n".join(self.disasm(bytes, ofs)))
 
     def debug(self, patch_name, patches):
         print(patch_name)
@@ -102,6 +109,7 @@ class FirmwarePatcher():
     # Normal: 28km/h (0x1c), 32000mA (0x7D00) / 17000mA (0x4268)
     # Eco: 22km/h (0x16), 17000mA (0x4268) / 7000mA (0x1B58)
     # 31, 50000, 30000, 26, 40000, 20000
+    # v13 = 12 * (v12 - 900) / 100 + 128;
     def speed_params(self, normal_kmh, normal_phase, normal_battery, eco_kmh, eco_phase, eco_battery):
         ret = []
         # 00006a54 8028                   cmp        r0, #0x80                            ; CODE XREF=sub_6998+182
@@ -172,7 +180,13 @@ class FirmwarePatcher():
 
         return ret
 
-    # limit: 1 - 130, min: 0 - 65k, max: min - 65k
+    # Lever virtual limit (1-130):  115
+    # Minimum phase current:  8000
+    # Maximum phase current:  30000
+    # v0 = 0x8001A54
+    # v3 = 0x8001A6E
+    # v5 = 0x8001A64
+    # v4 = (v0 + 68) - 22000 * v5 / 115 - 8000) * v3) / 1024;
     def brake_params(self, limit, min, max):
         ret = []
         limit = int(limit)
@@ -299,6 +313,16 @@ class FirmwarePatcher():
         ret.append((ofs, pre, post))
         return ret
 
+
+
+  # if (0x200007d4 == 1) {
+  #   0x200006d8 = 1;
+  #   0x200006e0 = 1;
+  # }
+
+  # 0x200006d8 = 1;
+  # 0x200006e0 = 1;
+
     def boot_with_eco(self):
         ret = []
         sig = [0xB4, 0xF8, 0xEA, 0x20, 0x01, 0x2A, 0x02, 0xD1, 0x00, 0xF8, 0x34, 0x1F, 0x01, 0x72]
@@ -386,7 +410,7 @@ class FirmwarePatcher():
         return [(ofs, pre, post)]
 
     def russian_throttle(self):
-        ret = [dict()]
+        ret = []
         # Find address of eco mode, part 1 find base addr
         sig = [0x91, 0x42, 0x01, 0xD2, 0x08, 0x46, 0x00, 0xE0, 0x10, 0x46, 0xA6, 0x4D]
         mask= [0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFE, 0xFF]
@@ -396,7 +420,7 @@ class FirmwarePatcher():
         ofsa = ofs + imm * 4 + 4 # ZeroExtend '00' + align?
         eco_addr = struct.unpack('<L', self.data[ofsa:ofsa + 4])[0]
 
-        ret[0]['eco_base'] = {'ofs': ofs, 'imm': imm, 'ofsa': ofsa, 'addr': hex(eco_addr)}
+        # ret[0]['eco_base'] = {'ofs': ofs, 'imm': imm, 'ofsa': ofsa, 'addr': hex(eco_addr)}
 
         # part 2, find offset of base addr
         sig = [0x85, 0xF8, 0x34, 0x60] # STRB.W  R6, [R5, #imm12]
@@ -405,7 +429,9 @@ class FirmwarePatcher():
         imm = struct.unpack('<HH', self.data[ofs:ofs + 4])[1] & 0x0FFF
         eco_addr += imm
 
-        ret[0]['eco_addr'] = {'ofs': ofs, 'imm': imm, 'addr': hex(eco_addr)}
+        print(hex(eco_addr))
+        # ret[0]['eco_addr'] = {'ofs': ofs, 'imm': imm, 'addr': hex(eco_addr)}
+        # self.pdisasm(self.data[eco_addr:eco_addr + 20], eco_addr)
 
         sig = [0xF0, 0xB5, 0x25, 0x4A, 0x00, 0x24, 0xA2, 0xF8, 0xEC, 0x40, 0x24, 0x49, 0x4B, 0x79, 0x00, 0x2B,
                0x3E, 0xD1, 0x23, 0x4D, 0x2F, 0x68, 0x23, 0x4E, 0x23, 0x4B, 0x00, 0x2F, 0x39, 0xDB, None, 0x64,
@@ -420,6 +446,7 @@ class FirmwarePatcher():
         ofs = FindPattern(self.data, sig)
 
         ofsa = ofs + len(sig) - (4 * 5)
+
         addr1, addr2, addr3, addr4, addr5 = struct.unpack('<LLLLL', self.data[ofsa:ofsa + 20])
 
         # STRH.W (T2)  Rt, [Rn, #imm12]
@@ -436,13 +463,13 @@ class FirmwarePatcher():
         addr4_ofs1 = (struct.unpack('<H', self.data[ofs + 34:ofs + 34 + 2])[0] >> 6) & 0x1F
         addr4_ofs1 *= 2 # ZeroExtend '0'
 
-        ret[0]['addrs'] = {
-                        '1': [hex(addr1), hex(addr1 + addr1_ofs1)],
-                        '2': [hex(addr2), hex(addr2 + addr2_ofs1), hex(addr2 + addr2_ofs2)],
-                        '3': [hex(addr3)],
-                        '4': [hex(addr4), hex(addr4 + addr4_ofs1)],
-                        '5': [hex(addr5)]
-                        }
+        # ret[0]['addrs'] = {
+        #                 '1': [hex(addr1), hex(addr1 + addr1_ofs1)],
+        #                 '2': [hex(addr2), hex(addr2 + addr2_ofs1), hex(addr2 + addr2_ofs2)],
+        #                 '3': [hex(addr3)],
+        #                 '4': [hex(addr4), hex(addr4 + addr4_ofs1)],
+        #                 '5': [hex(addr5)]
+        #                 }
 
         asm = f'''
                 LDR    R3, ={hex(addr2 + addr2_ofs1)}
@@ -519,11 +546,13 @@ class FirmwarePatcher():
         # pad with zero for no apparent reason
         padded = bytes(res[0]).ljust(len(sig), b'\x00')
 
-        ret[0]['len_sig'] = len(sig)
-        ret[0]['len_res'] = len(res[0])
-        ret[0]['res_inst'] = res[1]
+        # ret[0]['len_sig'] = len(sig)
+        # ret[0]['len_res'] = len(res[0])
+        # ret[0]['res_inst'] = res[1]
 
+        pre = self.data[ofs:ofs+len(padded)]
         self.data[ofs:ofs+len(padded)] = bytes(padded)
+        ret.append((ofs, pre, padded))
 
         # additional russian change
         sig = [0x07, 0xD0, 0x0B, 0xE0, 0x00, 0xEB, 0x40, 0x00, 0x40, 0x00, 0x05, 0xE0]
@@ -552,17 +581,18 @@ if __name__ == "__main__":
     cfw = FirmwarePatcher(data)
 
     # cfw.debug("kers_min_speed", cfw.kers_min_speed(45))
-    cfw.debug("speed_params", cfw.speed_params(31, 50000, 30000, 26, 40000, 20000))
-    # cfw.debug(cfw.brake_params(115, 8000, 50000))
+    # cfw.debug("speed_params", cfw.speed_params(31, 50000, 30000, 26, 40000, 20000))
+    # cfw.debug("brake_params", cfw.brake_params(5, 8000, 50000))
+
     # cfw.debug(cfw.voltage_limit(52))
     # cfw.debug("motor_start_speed", cfw.motor_start_speed(3))
     # cfw.debug("instant_eco_switch", cfw.instant_eco_switch())
-    #cfw.debug(cfw.boot_with_eco())
+    cfw.debug("boot_with_eco", cfw.boot_with_eco())
     #cfw.debug(cfw.cruise_control_delay(5))
     #cfw.debug(cfw.cruise_control_nobeep())
     # cfw.debug("remove_hard_speed_limit", cfw.remove_hard_speed_limit())
     #cfw.debug(cfw.remove_charging_mode())
     #cfw.debug(cfw.stay_on_locked())
     #cfw.debug(cfw.bms_uart_76800())
-    #cfw.debug(cfw.russian_throttle())
+    cfw.debug("russian_throttle", cfw.russian_throttle())
     #cfw.debug(cfw.wheel_speed_const(315))
