@@ -580,19 +580,22 @@ if __name__ == "__main__":
 
     cfw = FirmwarePatcher(data)
 
-    # cfw.debug("kers_min_speed", cfw.kers_min_speed(45))
-    # cfw.debug("speed_params", cfw.speed_params(31, 50000, 30000, 26, 40000, 20000))
-    # cfw.debug("brake_params", cfw.brake_params(5, 8000, 50000))
+    cfw.debug("kers_min_speed", cfw.kers_min_speed(45))
+    cfw.debug("speed_params", cfw.speed_params(
+        31, 41000, 22000, #
+        28, 32000, 17000  # 0x1c, 0x1B58, 0x1b58 -> 0x1f, 0x4268, 0x4268
+    ))
+    cfw.debug("brake_params", cfw.brake_params(5, 8000, 50000))
 
     # cfw.debug(cfw.voltage_limit(52))
-    # cfw.debug("motor_start_speed", cfw.motor_start_speed(3))
+    cfw.debug("motor_start_speed", cfw.motor_start_speed(2))
     # cfw.debug("instant_eco_switch", cfw.instant_eco_switch())
-    cfw.debug("boot_with_eco", cfw.boot_with_eco())
+    # cfw.debug("boot_with_eco", cfw.boot_with_eco())
     #cfw.debug(cfw.cruise_control_delay(5))
     #cfw.debug(cfw.cruise_control_nobeep())
     # cfw.debug("remove_hard_speed_limit", cfw.remove_hard_speed_limit())
     #cfw.debug(cfw.remove_charging_mode())
     #cfw.debug(cfw.stay_on_locked())
     #cfw.debug(cfw.bms_uart_76800())
-    cfw.debug("russian_throttle", cfw.russian_throttle())
+    # cfw.debug("russian_throttle", cfw.russian_throttle())
     #cfw.debug(cfw.wheel_speed_const(315))

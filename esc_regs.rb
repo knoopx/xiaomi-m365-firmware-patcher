@@ -1,0 +1,71 @@
+require 'active_support/all'
+
+BASE = 0x200006ea
+
+REGS = [
+  [0x00, "Magic 0x515C"],
+  [0x0d, "Motor phase A current"],
+  [0x0e, "Motor phase B current"],
+  [0x0f, "Motor phase C current"],
+  [0x10, "ESC serial number"],
+  [0x17, "Scooter PIN"],
+  [0x1a, "ESC firmware version"],
+  [0x1b, "Error code"],
+  [0x1c, "Warning code"],
+  [0x1d, "ESC status"],
+  [0x1f, "?"],
+  [0x22, "Battery level, %"],
+  [0x24, "Remaining mileage x0.8, km*100"],
+  [0x25, "Remaining mileage, km*100"],
+  [0x26, "Speed"],
+  [0x29, "Total mileage, m"],
+  [0x2f, "Current mileage"],
+  [0x32, "Total run time"],
+  [0x34, "? some run time"],
+  [0x3a, "? trip time"],
+  [0x3b, "? trip time"],
+  [0x3e, "Frame temperature"],
+  [0x47, "ESC supply voltage"],
+  [0x48, "BMS Battery voltage"],
+  [0x50, "BMS Battery current"],
+  [0x53, "?"],
+  [0x65, "Average speed"],
+  [0x67, "BMS firmware version"],
+  [0x68, "BLE firmware version"],
+  [0x69, "?"],
+  [0x70, "Lock command (write 1 to lock)"],
+  [0x71, "Unlock command (write 1 to unlock)"],
+  [0x74, "?"],
+  [0x75, "Eco mode"],
+  [0x78, "Reboot command (write 1 to reboot)"],
+  [0x79, "Powerdown command (write 1 to power off)"],
+  [0x7a, "?"],
+  [0x7b, "KERS level"],
+  [0x7c, "Cruise control enable"],
+  [0x7d, "Tail light on"],
+  [0xb0, "Error code"],
+  [0xb1, "Warning code"],
+  [0xb2, "ESC status"],
+  [0xb3, "?"],
+  [0xb4, "Battery level, %"],
+  [0xb5, "Speed, m/h"],
+  [0xb6, "Average speed"],
+  [0xb7, "Total mileage, m"],
+  [0xb9, "Trip distance, m*10"],
+  [0xba, "?"],
+  [0xbb, "Frame temperature"],
+  [0xbe, "Previous warning code"],
+  [0xc6, "?"],
+  [0xc8, "?"],
+  [0xca, "?"],
+  [0xcc, "?"],
+  [0xce, "?"],
+  [0xda, "MCU UID copy (ESC activation)"],
+]
+
+REGS.each do |offset, desc|
+  name = desc.parameterize.tableize.classify
+  unless name.blank?
+    puts "REG_#{name} #{(BASE + (offset * 2)).to_s(16)}"
+  end
+end

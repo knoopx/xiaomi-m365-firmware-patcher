@@ -302,6 +302,52 @@ class FirmwarePatcher():
 
         return ret
 
+    # limit: 1 - 130, min: 0 - 65k, max: min - 65k
+    def brake_params(self, limit, min, max):
+        ret = []
+        limit = int(limit)
+        assert limit >= 1 and limit <= 130
+        min = int(min)
+        assert min >= 0 and min < 65536
+        max = int(max)
+        assert max >= min and max < 65536
+
+        sig = [0x73, 0x29, 0x00, 0xDD, 0x73, 0x21, 0x45, 0xF2, 0xF0, 0x53, 0x59, 0x43, 0x73, 0x23, 0x91, 0xFB, 0xF3, 0xF1, None, 0x6C, 0x51, 0x1A, 0xA1, 0xF5, 0xFA, 0x51]
+        ofs = FindPattern(self.data, sig)
+
+        pre = self.data[ofs:ofs+2]
+        post = bytes(self.ks.asm('CMP R1, #{:n}'.format(limit))[0])
+        self.data[ofs:ofs+2] = post
+        ret.append((ofs, pre, post))
+        ofs += 2
+
+        ofs += 2
+        pre = self.data[ofs:ofs+2]
+        post = bytes(self.ks.asm('MOVS R1, #{:n}'.format(limit))[0])
+        self.data[ofs:ofs+2] = post
+        ret.append((ofs, pre, post))
+        ofs += 2
+
+        pre = self.data[ofs:ofs+4]
+        post = bytes(self.ks.asm('MOVW R3, #{:n}'.format(max - min))[0])
+        self.data[ofs:ofs+4] = post
+        ret.append((ofs, pre, post))
+        ofs += 4
+
+        ofs += 2
+        pre = self.data[ofs:ofs+2]
+        post = bytes(self.ks.asm('MOVS R3, #{:n}'.format(limit))[0])
+        self.data[ofs:ofs+2] = post
+        ret.append((ofs, pre, post))
+        ofs += 2
+
+        ofs += 8
+        pre = self.data[ofs:ofs+4]
+        post = bytes(self.ks.asm('SUB.W R1, R1, #{:n}'.format(min & 0xFF00))[0])
+        self.data[ofs:ofs+4] = post
+        ret.append((ofs, pre, post))
+
+        return ret
     # Stock 1.3.8: ~35km/h (12000/345)
     # Stock 1.5.5: ~65km/h (22500/345)
     # 1.5.5 is already high enough, probably no longer needed
@@ -336,23 +382,18 @@ if __name__ == "__main__":
 
     cfw.debug("kers_min_speed", cfw.kers_min_speed(45))
 
-    # Stock PRO: 55000 / 25000 ~ 2,2
-    # Stock M365: 32000 / 17000 ~ 1,882352941176471
-    # 50000 / 26500 Rollerplausch.com ~ 1,886792452830189
-    # 60000 / 30000 BotoX ~ 2
-    # 41000 / 22000 DYoC ~ 2,05
-    # cfw.debug("speed_params", cfw.speed_params(
-    #     31, 41000, 22000,
-    #     28, 32000, 17000,
-    #     22, 17000, 7000
-    #  ))
+    cfw.debug("speed_params", cfw.speed_params(
+        31, 41000, 22000, # 28 / 55000 / 25000
+        28, 32000, 17000, # 22 / 17000 / 7000
+        22, 17000, 7000   # 22 /
+     ))
 
-    # cfw.debug("motor_start_speed", cfw.motor_start_speed(2))
-    # cfw.debug("motor_power_constant", cfw.motor_power_constant(27877))
+    cfw.debug("motor_start_speed", cfw.motor_start_speed(2))
+    cfw.debug("motor_power_constant", cfw.motor_power_constant(27877))
     # cfw.debug("remove_hard_speed_limit", cfw.remove_hard_speed_limit())
 
-    with open(sys.argv[2], 'wb') as fp:
-        fp.write(cfw.data)
+    # with open(sys.argv[2], 'wb') as fp:
+    #     fp.write(cfw.data)
 
     # # make zip file for firmware
     # zip_buffer = io.BytesIO()
